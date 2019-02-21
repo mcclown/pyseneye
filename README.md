@@ -1,2 +1,2 @@
 # pyseneye
-A library for interacting with Seneye range or aquarium and pond sensors
+A library for interacting with the Seneye range or aquarium and pond sensors
