@@ -1,5 +1,6 @@
 import usb.core, usb.util
 import json, struct, bitstruct, sys, threading, time
+from array import array
 from enum import Enum
 
 #used to identify the undelying USB device
@@ -111,17 +112,39 @@ class ReadDefinition:
 
 class Command(Enum):
 
-    READING = 0
-    OPEN = 1
-    CLOSE = 2
+    SENSOR_READING = 0
+    ENTER_INTERACTIVE_MODE = 1
+    LEAVE_INTERACTIVE_MODE = 2
     LIGHT_READING = 3
 
 
 COMMAND_DEFINITIONS = {
-        Command.READING: CommandDefinition("READING", [ReadDefinition(GENERIC_RESPONSE, b'\x88\x02'), ReadDefinition(SUDREADING, b'\x00\x01')]),
-        Command.OPEN: CommandDefinition("HELLOSUD", [ReadDefinition(HELLOSUD_RESPONSE, b'\x88\x01')]),
-        Command.CLOSE: CommandDefinition("BYESUD", [ReadDefinition(GENERIC_RESPONSE, b'\x88\x05')]),
-        Command.LIGHT_READING: CommandDefinition(None, [ReadDefinition(SUDLIGHTMETER, b'\x00\x02')])
+        Command.SENSOR_READING: CommandDefinition("READING", [
+            ReadDefinition(
+                GENERIC_RESPONSE, 
+                array('B', [0x88,0x02])), 
+            ReadDefinition(
+                SUDREADING, 
+                array('B', [0x00, 0x01]))
+            ]),
+
+        Command.LIGHT_READING: CommandDefinition(None, [
+            ReadDefinition(
+                SUDLIGHTMETER, 
+                array('B', [0x00, 0x02]))
+            ]),
+        
+        Command.ENTER_INTERACTIVE_MODE: CommandDefinition("HELLOSUD", [
+            ReadDefinition(
+                HELLOSUD_RESPONSE, 
+                array('B', [0x88, 0x01]))
+            ]),
+
+        Command.LEAVE_INTERACTIVE_MODE: CommandDefinition("BYESUD", [
+            ReadDefinition(
+                GENERIC_RESPONSE, 
+                array('B', [0x88, 0x05]))
+            ])
         }
 
 
@@ -213,7 +236,7 @@ class SUDevice:
                     if __debug__:
                         print("Validation bytes: {0}".format(r[0:2]))
                 
-                    if r[0:2].tostring() == rdef.validator:
+                    if r[0:2] == rdef.validator:
                         result = r
                         
                         if __debug__:
@@ -228,12 +251,14 @@ class SUDevice:
 
                     return None
 
+        # TODO Add validation of result and add internal flag for interactive/non-interactive mode
+
         return result
 
 
     def get_sensor_reading(self, timeout = 10000):
         
-        r = self.get_data(Command.READING, timeout)
+        r = self.get_data(Command.SENSOR_READING, timeout)
 
         if r is None:
             return None
