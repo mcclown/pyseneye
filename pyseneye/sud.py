@@ -1,5 +1,5 @@
 import usb.core, usb.util
-import json, bitstruct, sys, threading
+import json, struct, bitstruct, sys, threading, time
 
 VENDOR_ID=9463
 PRODUCT_ID=8708
@@ -7,22 +7,28 @@ PRODUCT_ID=8708
 #Structs from Seneye sample C++ code
 #https://github.com/seneye/SUDDriver/blob/master/Cpp/sud_data.h
 
-#[unused], Kelvin, x, y, Par, Lux, PUR
-B_LIGHTMETER = "u64s32s32s32u32u32u8"
+ENDIAN = "<"
 
-#[unused], InWater, SlideNotFitted, SlideExpired, StateT, StatePH, StateNH3, 
-#Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
-SUDREADING_VALUES = "u2b1b1b1u2u2u2b1b1u3u16u16s32u128" + B_LIGHTMETER
+#[unused], Kelvin, x, y, Par, Lux, PUR
+B_LIGHTMETER = "8s3i2IBc"
+
+#Flags (1&2), [reserved], PH, NH3, T, [reserved] 
+SUDREADING_VALUES = "4Hi16s" + B_LIGHTMETER
 
 #Timestamp
-SUDREADING = "u32" + SUDREADING_VALUES
+SUDREADING = ENDIAN + "2sI" + SUDREADING_VALUES
+#struct.unpack("<2cI4Hi16s8s3i2IBc", s)
 
 #IsKelvin
-SUDLIGHTMETER = "b1" + B_LIGHTMETER
+SUDLIGHTMETER = ENDIAN + "2sI" + B_LIGHTMETER
 
 #This isn't specified as a struct but it is required
 #Header, Command, ACK
-WRITE_RESPONSE = "u8u8b8"
+WRITE_RESPONSE = "2B?"
+
+#[unused], InWater, SlideNotFitted, SlideExpired, StateT, StatePH, StateNH3, 
+#Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
+SUDREADING_FLAGS = "u2b1b1b1u2u2u2b1b1u3" 
 
 
 class SUDevice:
@@ -83,8 +89,18 @@ class SUDevice:
 
         return self.instance.read(self._ep_in, packet_size)
 
+    def open(self):
+
+        self.write("HELLOSUD")
+        r = self.read()
+        print(r)
 
     def close(self):
+        
+        self.write("BYESUD")
+        r = self.read()
+        print(r)
+
         # re-attach kernel driver
         usb.util.release_interface(self.instance, 0)
         self.instance.attach_kernel_driver(0)
@@ -92,7 +108,68 @@ class SUDevice:
         # clean up
         usb.util.release_interface(self.instance, 0)
         usb.util.dispose_resources(self.instance)
-        self.instance.reset()     
+        self.instance.reset()
+
+
+    def get_light_reading(self):
+
+        return self.read()
+
+
+    def get_sensor_reading(self, timeout = 10000):
+
+        self.write("READING")
+        result = None
+        
+        start = time.time()
+
+        while not result:
+            try:
+                r = self.read()
+                if r[1] != 2:
+                    result = r
+            except:
+                pass
+            
+            if ((time.time() - start) * 1000) > timeout:
+                return None
+
+        return SUDData(r)
+
+
+class SUDData:
+
+    def __init__(self, raw_data):
+
+        cmd, ts, flags, unused, ph, nh3, t, *unused = struct.unpack(SUDREADING, raw_data)
+
+        self._ts = ts
+        self._ph = ph/100
+        self._nh3 = nh3/1000
+        self._t = t/1000
+        self._flags = flags
+
+    @property
+    def timestamp(self):
+        return self._ts
+
+    @property
+    def ph(self):
+        return self._ph
+
+    @property
+    def nh3(self):
+        return self._nh3
+
+    @property
+    def temperature(self):
+        return self._t
+
+    @property
+    def flags(self):
+        return self._flags
+
+
 
 
 class SUDMonitor:
