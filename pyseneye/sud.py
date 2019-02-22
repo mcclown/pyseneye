@@ -1,6 +1,8 @@
 import usb.core, usb.util
 import json, struct, bitstruct, sys, threading, time
+from enum import Enum
 
+#used to identify the undelying USB device
 VENDOR_ID=9463
 PRODUCT_ID=8708
 
@@ -9,26 +11,118 @@ PRODUCT_ID=8708
 
 ENDIAN = "<"
 
-#[unused], Kelvin, x, y, Par, Lux, PUR
+#[unused], Kelvin, x, y, Par, Lux, PUR, [unused]
 B_LIGHTMETER = "8s3i2IBc"
 
-#Flags (1&2), [reserved], PH, NH3, T, [reserved] 
+#Flags, [unused], PH, NH3, Temp, [unused] 
 SUDREADING_VALUES = "4Hi16s" + B_LIGHTMETER
 
-#Timestamp
+#Header, cmd, Timestamp
 SUDREADING = ENDIAN + "2sI" + SUDREADING_VALUES
-#struct.unpack("<2cI4Hi16s8s3i2IBc", s)
 
-#IsKelvin
+#Header, cmd, IsKelvin
 SUDLIGHTMETER = ENDIAN + "2sI" + B_LIGHTMETER
 
-#This isn't specified as a struct but it is required
-#Header, Command, ACK
-WRITE_RESPONSE = "2B?"
 
+#These aren't specified as a struct but I'm treating them as if they were
+#Header, Cmd, ACK
+RESPONSE = ENDIAN + "2s?"
+
+GENERIC_RESPONSE = RESPONSE + "61s"
+
+HELLOSUD_RESPONSE = RESPONSE + "BH58s"
+
+
+# WIP - Decoding the flags
 #[unused], InWater, SlideNotFitted, SlideExpired, StateT, StatePH, StateNH3, 
 #Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
 SUDREADING_FLAGS = "u2b1b1b1u2u2u2b1b1u3" 
+
+
+
+class SUDData:
+
+    def __init__(self, raw_data):
+
+        cmd, ts, flags, unused, ph, nh3, t, *unused = struct.unpack(SUDREADING, raw_data)
+
+        self._ts = ts
+        self._ph = ph/100
+        self._nh3 = nh3/1000
+        self._t = t/1000
+        self._flags = flags
+
+    @property
+    def timestamp(self):
+        return self._ts
+
+    @property
+    def ph(self):
+        return self._ph
+
+    @property
+    def nh3(self):
+        return self._nh3
+
+    @property
+    def temperature(self):
+        return self._t
+
+    @property
+    def flags(self):
+        return self._flags
+
+
+class CommandDefinition:
+
+    def __init__(self, cmd_str, rdefs):
+
+        self._cmd_str = cmd_str
+        self._rdefs = rdefs
+
+    @property
+    def cmd_str(self):
+
+        return self._cmd_str
+
+    @property
+    def read_definitions(self):
+
+        return self._rdefs
+
+
+class ReadDefinition:
+
+    def __init__(self, parse_str, validator):
+
+        self._validator = validator
+        self._parse_str = parse_str
+
+    @property
+    def validator(self):
+
+        return self._validator
+
+    @property
+    def parse_str(self):
+
+        return self._parse_str
+
+
+class Command(Enum):
+
+    READING = 0
+    OPEN = 1
+    CLOSE = 2
+    LIGHT_READING = 3
+
+
+COMMAND_DEFINITIONS = {
+        Command.READING: CommandDefinition("READING", [ReadDefinition(GENERIC_RESPONSE, b'\x88\x02'), ReadDefinition(SUDREADING, b'\x00\x01')]),
+        Command.OPEN: CommandDefinition("HELLOSUD", [ReadDefinition(HELLOSUD_RESPONSE, b'\x88\x01')]),
+        Command.CLOSE: CommandDefinition("BYESUD", [ReadDefinition(GENERIC_RESPONSE, b'\x88\x05')]),
+        Command.LIGHT_READING: CommandDefinition(None, [ReadDefinition(SUDLIGHTMETER, b'\x00\x02')])
+        }
 
 
 class SUDevice:
@@ -71,105 +165,80 @@ class SUDevice:
         self._ep_out = ep_out
 
 
-    @property
-    def instance(self):
-        
-        return self._instance
+    def _write(self, msg):
+
+        return self._instance.write(self._ep_out, msg)
 
 
-    def write(self, msg):
-
-        return self.instance.write(self._ep_out, msg)
-
-
-    def read(self, packet_size = None):
+    def _read(self, packet_size = None):
         
         if packet_size is None:
             packet_size = self._ep_in.wMaxPacketSize
 
-        return self.instance.read(self._ep_in, packet_size)
+        return self._instance.read(self._ep_in, packet_size)
 
-    def open(self):
-
-        self.write("HELLOSUD")
-        r = self.read()
-        print(r)
 
     def close(self):
         
-        self.write("BYESUD")
-        r = self.read()
-        print(r)
-
         # re-attach kernel driver
-        usb.util.release_interface(self.instance, 0)
-        self.instance.attach_kernel_driver(0)
+        usb.util.release_interface(self._instance, 0)
+        self._instance.attach_kernel_driver(0)
         
         # clean up
-        usb.util.release_interface(self.instance, 0)
-        usb.util.dispose_resources(self.instance)
-        self.instance.reset()
+        usb.util.release_interface(self._instance, 0)
+        usb.util.dispose_resources(self._instance)
+        self._instance.reset()
 
 
-    def get_light_reading(self):
+    def get_data(self, cmd, timeout = 10000):
 
-        return self.read()
-
-
-    def get_sensor_reading(self, timeout = 10000):
-
-        self.write("READING")
-        result = None
+        d = COMMAND_DEFINITIONS[cmd]
+        
+        if d.cmd_str is not None:
+            self._write(d.cmd_str)
         
         start = time.time()
 
-        while not result:
-            try:
-                r = self.read()
-                if r[1] != 2:
-                    result = r
-            except:
-                pass
+        for rdef in d.read_definitions:
             
-            if ((time.time() - start) * 1000) > timeout:
-                return None
+            if __debug__:
+                print("validator: {0}".format(rdef.validator))
 
+            result = None
+            
+            while not result:
+                try:
+                    r = self._read()
+                    
+                    if __debug__:
+                        print("Validation bytes: {0}".format(r[0:2]))
+                
+                    if r[0:2].tostring() == rdef.validator:
+                        result = r
+                        
+                        if __debug__:
+                            print("Result: {0}".format(r))
+                except:
+                    pass
+            
+                if ((time.time() - start) * 1000) > timeout:
+                    
+                    if __debug__:
+                        print("Operation timed out")
+
+                    return None
+
+        return result
+
+
+    def get_sensor_reading(self, timeout = 10000):
+        
+        r = self.get_data(Command.READING, timeout)
+
+        if r is None:
+            return None
+        
         return SUDData(r)
-
-
-class SUDData:
-
-    def __init__(self, raw_data):
-
-        cmd, ts, flags, unused, ph, nh3, t, *unused = struct.unpack(SUDREADING, raw_data)
-
-        self._ts = ts
-        self._ph = ph/100
-        self._nh3 = nh3/1000
-        self._t = t/1000
-        self._flags = flags
-
-    @property
-    def timestamp(self):
-        return self._ts
-
-    @property
-    def ph(self):
-        return self._ph
-
-    @property
-    def nh3(self):
-        return self._nh3
-
-    @property
-    def temperature(self):
-        return self._t
-
-    @property
-    def flags(self):
-        return self._flags
-
-
 
 
 class SUDMonitor:
@@ -188,10 +257,10 @@ class SUDMonitor:
 
             try:
                 if self._cmd:
-                    self._device.write(self._cmd)
+                    self._device._write(self._cmd)
                     self._cmd = None
 
-                print(self._device.read())
+                print(self._device._read())
             except:
                 pass
 
