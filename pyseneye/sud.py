@@ -1,5 +1,6 @@
 import usb.core, usb.util
 import json, struct, bitstruct, sys, threading, time
+from abc import ABC, abstractmethod
 from array import array
 from enum import Enum
 
@@ -39,35 +40,116 @@ HELLOSUD_RESPONSE = RESPONSE + "BH58s"
 #Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
 SUDREADING_FLAGS = "u2b1b1b1u2u2u2b1b1u3" 
 
+class Command(Enum):
+
+    SENSOR_READING = 0
+    ENTER_INTERACTIVE_MODE = 1
+    LEAVE_INTERACTIVE_MODE = 2
+    LIGHT_READING = 3
 
 
-class SUDData:
+class DeviceType(Enum):
 
-    def __init__(self, raw_data):
+    HOME = 0
+    POND = 1
+    REEF = 3
 
-        cmd, ts, flags, unused, ph, nh3, t, *unused = struct.unpack(SUDREADING, raw_data)
 
-        self._ts = ts
-        self._ph = ph/100
-        self._nh3 = nh3/1000
-        self._t = t/1000
-        self._flags = flags
+class BaseResponse(ABC):
+    
+    def __init__(self, raw_data, read_def):
+
+        parsed_values = struct.unpack(read_def.parse_str, raw_data)
+        length = len(parsed_values)
+        expected_values = read_def.return_values.split(",")
+
+        if length != len(expected_values):
+            raise ValueError("Returned data length doesn't match expected data length")
+
+        for i in range(0, length):
+
+            setattr(self, "_{0}".format(expected_values[i]), parsed_values[i])
+
+    @property
+    def validation_bytes(self):
+
+        return self._validation_bytes
+
+
+class InteractiveModeResponse(BaseResponse):
+
+    def __init__(self, raw_data, read_def):
+
+        self._ack = False
+
+        super().__init__(raw_data, read_def)
+
+
+    @property
+    def ack(self):
+
+        return self._ack
+
+
+class EnterInteractiveResponse(InteractiveModeResponse):
+
+    def __init__(self, raw_data, read_def):
+        self._device_type = None
+        self._version = 0
+
+        super().__init__(raw_data, read_def)
+
+    @property
+    def device_type(self):
+
+        if self._device_type is None:
+            return None
+
+        return DeviceType(self._device_type)
+
+    @property
+    def version(self):
+
+        v = self._version
+
+        major = int(v / 10000)
+        minor = int((v / 100) % 100)
+        rev = v % 100
+
+        return "{0}.{1}.{2}".format(major, minor, rev)
+
+
+class SensorReadingResponse(BaseResponse):
+
+    def __init__(self, raw_data, read_def):
+        
+        self._timestamp = 0
+        self._ph = 0
+        self._nh3 = 0
+        self._temperature = 0
+        self._flags = None
+
+        super().__init__(raw_data, read_def)
+
+    @property
+    def is_light_reading(self):
+        return self._validation_bytes == COMMAND_DEFINITIONS[Command.LIGHT_READING].reading_definitions[0].validator
 
     @property
     def timestamp(self):
-        return self._ts
+        return self._timestamp
 
     @property
     def ph(self):
-        return self._ph
+        return self._ph/100
 
     @property
     def nh3(self):
-        return self._nh3
+        return self._nh3/1000
 
     @property
     def temperature(self):
-        return self._t
+        return self._temperature/1000
 
     @property
     def flags(self):
@@ -94,10 +176,11 @@ class CommandDefinition:
 
 class ReadDefinition:
 
-    def __init__(self, parse_str, validator):
+    def __init__(self, parse_str, validator, return_values):
 
         self._validator = validator
         self._parse_str = parse_str
+        self._return_values = return_values
 
     @property
     def validator(self):
@@ -109,41 +192,46 @@ class ReadDefinition:
 
         return self._parse_str
 
+    @property
+    def return_values(self):
 
-class Command(Enum):
+        return self._return_values
 
-    SENSOR_READING = 0
-    ENTER_INTERACTIVE_MODE = 1
-    LEAVE_INTERACTIVE_MODE = 2
-    LIGHT_READING = 3
-
+SENSOR_RETURN_VALUES = "validation_bytes,timestamp,flags,unused,ph,nh3,temperature,unused,unused,kelvin,kelvin_x,kelvin_y,par,lux,pur,unused"
+HELLOSUD_RETURN_VALUES = "validation_bytes,ack,device_type,version,unused"
+GENERIC_RETURN_VALUES = "validation_bytes,ack,unused"
 
 COMMAND_DEFINITIONS = {
         Command.SENSOR_READING: CommandDefinition("READING", [
             ReadDefinition(
                 GENERIC_RESPONSE, 
-                array('B', [0x88,0x02])), 
+                array('B', [0x88,0x02]),
+                GENERIC_RETURN_VALUES), 
             ReadDefinition(
                 SUDREADING, 
-                array('B', [0x00, 0x01]))
+                array('B', [0x00, 0x01]),
+                SENSOR_RETURN_VALUES)
             ]),
 
         Command.LIGHT_READING: CommandDefinition(None, [
             ReadDefinition(
                 SUDLIGHTMETER, 
-                array('B', [0x00, 0x02]))
+                array('B', [0x00, 0x02]),
+                SENSOR_RETURN_VALUES)
             ]),
         
         Command.ENTER_INTERACTIVE_MODE: CommandDefinition("HELLOSUD", [
             ReadDefinition(
                 HELLOSUD_RESPONSE, 
-                array('B', [0x88, 0x01]))
+                array('B', [0x88, 0x01]),
+                HELLOSUD_RETURN_VALUES)
             ]),
 
         Command.LEAVE_INTERACTIVE_MODE: CommandDefinition("BYESUD", [
             ReadDefinition(
                 GENERIC_RESPONSE, 
-                array('B', [0x88, 0x05]))
+                array('B', [0x77, 0x01]), # Differs from documented response
+                GENERIC_RETURN_VALUES)
             ])
         }
 
@@ -217,6 +305,7 @@ class SUDevice:
 
         d = COMMAND_DEFINITIONS[cmd]
         
+        # TODO Operation can timeout here, need to add sme error handling
         if d.cmd_str is not None:
             self._write(d.cmd_str)
         
@@ -254,16 +343,6 @@ class SUDevice:
         # TODO Add validation of result and add internal flag for interactive/non-interactive mode
 
         return result
-
-
-    def get_sensor_reading(self, timeout = 10000):
-        
-        r = self.get_data(Command.SENSOR_READING, timeout)
-
-        if r is None:
-            return None
-        
-        return SUDData(r)
 
 
 class SUDMonitor:
