@@ -339,13 +339,7 @@ class SUDevice:
         return self._instance.read(self._ep_in, packet_size)
 
 
-    def _data_to_class(data, rdef):
-
-        pass
-
-
-   
-    def get_data(self, cmd, timeout = 10000):
+    def action(self, cmd, timeout = 10000):
 
         cdef = COMMAND_DEFINITIONS[cmd]
         
