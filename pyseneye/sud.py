@@ -1,6 +1,6 @@
 import usb.core, usb.util
 import json, struct, bitstruct, sys, threading, time
-from abc import ABC, abstractmethod
+from abc import ABC
 from array import array
 from enum import Enum
 
@@ -8,36 +8,33 @@ from enum import Enum
 VENDOR_ID=9463
 PRODUCT_ID=8708
 
-#Structs from Seneye sample C++ code
-#https://github.com/seneye/SUDDriver/blob/master/Cpp/sud_data.h
 
+# Based on the structs from Seneye sample C++ code
+# https://github.com/seneye/SUDDriver/blob/master/Cpp/sud_data.h
+
+# little-endian
 ENDIAN = "<"
 
-#[unused], Kelvin, x, y, Par, Lux, PUR, [unused]
-B_LIGHTMETER = "8s3i2IBc"
+# [unused], Kelvin, x, y, Par, Lux, PUR
+B_LIGHTMETER = "11s3i2IB"
 
-#Flags, [unused], PH, NH3, Temp, [unused] 
-SUDREADING_VALUES = "4Hi16s" + B_LIGHTMETER
+# Flags, [unused], PH, NH3, Temp, [unused]
+SUDREADING_VALUES = "4Hi13s" + B_LIGHTMETER
 
-#Header, cmd, Timestamp
-SUDREADING = ENDIAN + "2sI" + SUDREADING_VALUES
+# Header, cmd, Timestamp
+SUDREADING = ENDIAN + "2sI" + SUDREADING_VALUES + "c"
 
-#Header, cmd, IsKelvin
-SUDLIGHTMETER = ENDIAN + "2sI" + B_LIGHTMETER
+# Header, cmd, IsKelvin
+SUDLIGHTMETER = ENDIAN + "2s?" + B_LIGHTMETER + "29s"
 
-
-#These aren't specified as a struct but I'm treating them as if they were
-#Header, Cmd, ACK
+# These are not specified as a struct, in the original C++ source
 RESPONSE = ENDIAN + "2s?"
-
 GENERIC_RESPONSE = RESPONSE + "61s"
-
 HELLOSUD_RESPONSE = RESPONSE + "BH58s"
 
 
 # WIP - Decoding the flags
-#[unused], InWater, SlideNotFitted, SlideExpired, StateT, StatePH, StateNH3, 
-#Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
+# [unused], InWater, SlideNotFitted, SlideExpired, StateT, StatePH, StateNH3, Error, IsKelvin, [unused], PH, NH3, Temperature, [unused]
 SUDREADING_FLAGS = "u2b1b1b1u2u2u2b1b1u3" 
 
 class Command(Enum):
@@ -64,7 +61,7 @@ class BaseResponse(ABC):
         expected_values = read_def.return_values.split(",")
 
         if length != len(expected_values):
-            raise ValueError("Returned data length doesn't match expected data length")
+            raise ValueError("Returned parameter number doesn't match expected return parameter number")
 
         for i in range(0, length):
 
@@ -76,7 +73,7 @@ class BaseResponse(ABC):
         return self._validation_bytes
 
 
-class InteractiveModeResponse(BaseResponse):
+class Response(BaseResponse):
 
     def __init__(self, raw_data, read_def):
 
@@ -91,7 +88,7 @@ class InteractiveModeResponse(BaseResponse):
         return self._ack
 
 
-class EnterInteractiveResponse(InteractiveModeResponse):
+class EnterInteractiveResponse(Response):
 
     def __init__(self, raw_data, read_def):
         self._device_type = None
@@ -128,12 +125,28 @@ class SensorReadingResponse(BaseResponse):
         self._nh3 = 0
         self._temperature = 0
         self._flags = None
+        self._is_kelvin = False
+        self._kelvin = 0
+        self._kelvin_x = 0
+        self._kelvin_y = 0
+        self._par = 0
+        self._lux = 0
+        self._pur = 0
 
         super().__init__(raw_data, read_def)
 
     @property
     def is_light_reading(self):
         return self._validation_bytes == COMMAND_DEFINITIONS[Command.LIGHT_READING].reading_definitions[0].validator
+
+    @property
+    def is_kelvin(self):
+
+        if is_light_reading:
+            return self._is_kelvin
+        else:
+            #Need to read this from flags, not implemented yet
+            return None 
 
     @property
     def timestamp(self):
@@ -154,6 +167,30 @@ class SensorReadingResponse(BaseResponse):
     @property
     def flags(self):
         return self._flags
+
+    @property
+    def kelvin(self):
+        return self._kelvin
+
+    @property
+    def kelvin_x(self):
+        return self._kelvin_x
+
+    @property
+    def kelvin_y(self):
+        return self._kelvin_y
+
+    @property
+    def par(self):
+        return self._par
+
+    @property
+    def lux(self):
+        return self._lux
+
+    @property
+    def pur(self):
+        return self._pur
 
 
 class CommandDefinition:
@@ -176,11 +213,12 @@ class CommandDefinition:
 
 class ReadDefinition:
 
-    def __init__(self, parse_str, validator, return_values):
+    def __init__(self, parse_str, validator, return_values, return_type):
 
         self._validator = validator
         self._parse_str = parse_str
         self._return_values = return_values
+        self._return_type = return_type
 
     @property
     def validator(self):
@@ -197,7 +235,14 @@ class ReadDefinition:
 
         return self._return_values
 
-SENSOR_RETURN_VALUES = "validation_bytes,timestamp,flags,unused,ph,nh3,temperature,unused,unused,kelvin,kelvin_x,kelvin_y,par,lux,pur,unused"
+    @property
+    def return_type(self):
+
+        return self._return_type
+
+LIGHT_SENSOR_SUB_VALUES = ",kelvin,kelvin_x,kelvin_y,par,lux,pur,unused"
+SENSOR_RETURN_VALUES = "validation_bytes,timestamp,flags,unused,ph,nh3,temperature,unused,unused" + LIGHT_SENSOR_SUB_VALUES
+LIGHT_SENSOR_RETURN_VALUES = "validation_bytes,is_kelvin,unused" + LIGHT_SENSOR_SUB_VALUES
 HELLOSUD_RETURN_VALUES = "validation_bytes,ack,device_type,version,unused"
 GENERIC_RETURN_VALUES = "validation_bytes,ack,unused"
 
@@ -206,32 +251,37 @@ COMMAND_DEFINITIONS = {
             ReadDefinition(
                 GENERIC_RESPONSE, 
                 array('B', [0x88,0x02]),
-                GENERIC_RETURN_VALUES), 
+                GENERIC_RETURN_VALUES,
+                Response), 
             ReadDefinition(
                 SUDREADING, 
                 array('B', [0x00, 0x01]),
-                SENSOR_RETURN_VALUES)
+                SENSOR_RETURN_VALUES,
+                SensorReadingResponse)
             ]),
 
         Command.LIGHT_READING: CommandDefinition(None, [
             ReadDefinition(
                 SUDLIGHTMETER, 
                 array('B', [0x00, 0x02]),
-                SENSOR_RETURN_VALUES)
+                LIGHT_SENSOR_RETURN_VALUES,
+                SensorReadingResponse)
             ]),
         
         Command.ENTER_INTERACTIVE_MODE: CommandDefinition("HELLOSUD", [
             ReadDefinition(
                 HELLOSUD_RESPONSE, 
                 array('B', [0x88, 0x01]),
-                HELLOSUD_RETURN_VALUES)
+                HELLOSUD_RETURN_VALUES,
+                EnterInteractiveResponse)
             ]),
 
         Command.LEAVE_INTERACTIVE_MODE: CommandDefinition("BYESUD", [
             ReadDefinition(
                 GENERIC_RESPONSE, 
                 array('B', [0x77, 0x01]), # Differs from documented response
-                GENERIC_RETURN_VALUES)
+                GENERIC_RETURN_VALUES,
+                Response)
             ])
         }
 
@@ -289,6 +339,55 @@ class SUDevice:
         return self._instance.read(self._ep_in, packet_size)
 
 
+    def _data_to_class(data, rdef):
+
+        pass
+
+
+   
+    def get_data(self, cmd, timeout = 10000):
+
+        cdef = COMMAND_DEFINITIONS[cmd]
+        
+        if cdef.cmd_str is not None:
+            self._write(cdef.cmd_str)
+        
+        start = time.time()
+
+        # Preserve data and rdef, to generate the return value
+        data = None
+        rdef = None
+
+
+        for rdef in cdef.read_definitions:
+            
+            if __debug__:
+                print("validator: {0}".format(rdef.validator))
+
+            # Re-set while, if there are multiple read defs
+            data = None 
+            
+            while not data:
+                try:
+                    r = self._read()
+                    
+                    if __debug__:
+                        print("Validation bytes: {0}".format(r[0:2]))
+                
+                    if r[0:2] == rdef.validator:
+                        data = r
+                        
+                        if __debug__:
+                            print("Result: {0}".format(data))
+                except:
+                    pass
+            
+                if ((time.time() - start) * 1000) > timeout:
+                    raise TimeoutError("Operation timed out reading response.")
+
+        return rdef.return_type(data, rdef)
+
+
     def close(self):
         
         # re-attach kernel driver
@@ -299,94 +398,4 @@ class SUDevice:
         usb.util.release_interface(self._instance, 0)
         usb.util.dispose_resources(self._instance)
         self._instance.reset()
-
-
-    def get_data(self, cmd, timeout = 10000):
-
-        d = COMMAND_DEFINITIONS[cmd]
-        
-        # TODO Operation can timeout here, need to add sme error handling
-        if d.cmd_str is not None:
-            self._write(d.cmd_str)
-        
-        start = time.time()
-
-        for rdef in d.read_definitions:
-            
-            if __debug__:
-                print("validator: {0}".format(rdef.validator))
-
-            result = None
-            
-            while not result:
-                try:
-                    r = self._read()
-                    
-                    if __debug__:
-                        print("Validation bytes: {0}".format(r[0:2]))
-                
-                    if r[0:2] == rdef.validator:
-                        result = r
-                        
-                        if __debug__:
-                            print("Result: {0}".format(r))
-                except:
-                    pass
-            
-                if ((time.time() - start) * 1000) > timeout:
-                    
-                    if __debug__:
-                        print("Operation timed out")
-
-                    return None
-
-        # TODO Add validation of result and add internal flag for interactive/non-interactive mode
-
-        return result
-
-
-class SUDMonitor:
-
-    def __init__(self, device):
-    
-        self._cmd = None
-        self._stop = True
-
-        self._device = device
-
-
-    def monitor_thread(self):
-
-        while not self._stop:
-
-            try:
-                if self._cmd:
-                    self._device._write(self._cmd)
-                    self._cmd = None
-
-                print(self._device._read())
-            except:
-                pass
-
-
-    def run(self):
-
-        self._stop = False
-
-        t = threading.Thread(target=self.monitor_thread)
-        t.start()
-
-        while not self._stop:
-            cmd = input("cmd (r|h|b|q):")
-
-            if cmd == "r":
-                self._cmd = "READING"
-            elif cmd == "h":
-                self._cmd = "HELLOSUD"
-            elif cmd == "b":
-                self._cmd = "BYESUD"
-            elif cmd == "q":
-                self._stop = True
-
-
 
