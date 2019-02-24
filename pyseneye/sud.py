@@ -116,7 +116,7 @@ class BaseResponse(ABC):  # pylint:disable=R0903
 
     @property
     def validation_bytes(self):
-        """The bytes that are used to validate the message is correct.
+        """Bytes that are used to validate the message is correct.
 
         :returns: bytes used for validation
         :rtype: array('B', [2])
@@ -153,8 +153,9 @@ class EnterInteractiveResponse(Response):
     """Received when entering interactive mode. Contains device metadata."""
 
     def __init__(self, raw_data, read_def):
-        """Initialise enter interactive mode response, including device type
-        and version.
+        """Initialise enter interactive mode response.
+
+        Includes device type and version.
 
         :param raw_data: raw binary data, containing response data
         :param read_def: the definition of the expected data
@@ -168,7 +169,7 @@ class EnterInteractiveResponse(Response):
 
     @property
     def device_type(self):
-        """Gets the device type.
+        """Get the device type.
 
         :returns: the device type
         :rtype: DeviceType
@@ -180,7 +181,7 @@ class EnterInteractiveResponse(Response):
 
     @property
     def version(self):
-        """The firmware version of the device.
+        """Firmware version of the device.
 
         :returns: the version
         :rtype: str
@@ -196,6 +197,9 @@ class EnterInteractiveResponse(Response):
 
 class SensorReadingResponse(BaseResponse):
     """Response which contains all sensor data."""
+
+    # pylint: disable=too-many-instance-attributes
+    # All attributes are required. I will try to break this up later.
 
     def __init__(self, raw_data, read_def):
         """Initialise sensor reading response, also populate sensor data.
@@ -233,7 +237,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def is_kelvin(self):
-        """Is light reading on kelvin line: https://tinyurl.com/yy2wtaz5
+        """Is light reading on kelvin line: https://tinyurl.com/yy2wtaz5.
 
         :returns: True if on kelvin line, False if not
         :rtype: bool
@@ -246,7 +250,8 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def timestamp(self):
-        """The time the reading was taken at.
+        """Time the reading was taken at.
+
         (only available for sensor readings)
 
         :returns: Unix epoch time
@@ -256,7 +261,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def ph(self):  # pylint:disable=C0103
-        """The PH reading from the device.
+        """PH reading from the device.
 
         :returns: the PH value
         :rtype: float
@@ -265,7 +270,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def nh3(self):
-        """The NH3 reading from the device.
+        """NH3 reading from the device.
 
         :returns: the NH3 value
         :rtype: float
@@ -274,7 +279,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def temperature(self):
-        """The temperature reading from the device.
+        """Temperature reading from the device.
 
         :returns: the temperature
         :rtype: float
@@ -292,7 +297,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def kelvin(self):
-        """The kelvin value of the light reading.
+        """Kelvin value of the light reading.
 
         :returns: the kelvin value
         :rtype: int
@@ -301,7 +306,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def kelvin_x(self):
-        """X co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5
+        """X co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5.
 
         Limited to colors that are near the kelvin line. Check with is_kelvin.
 
@@ -312,7 +317,7 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def kelvin_y(self):
-        """Y co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5
+        """Y co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5.
 
         Limited to colors that are near the kelvin line. Check with is_kelvin.
 
@@ -365,7 +370,7 @@ class CommandDefinition:
 
     @property
     def cmd_str(self):
-        """The command string to write to the device.
+        """Command string to write to the device.
 
         :returns: command string
         :rtype: str
@@ -374,7 +379,7 @@ class CommandDefinition:
 
     @property
     def read_definitions(self):
-        """The expected response read definition.
+        """Read definition for expected response.
 
         :returns: the read definitions
         :rtype: ReadDefinition[]
@@ -405,7 +410,7 @@ class ReadDefinition:
 
     @property
     def validator(self):
-        """Validation bytes for expected read.
+        """Bytes that are used for validation of expected read.
 
         :returns: validation bytes
         :rtype: array('B', [2])
@@ -423,7 +428,7 @@ class ReadDefinition:
 
     @property
     def return_values(self):
-        """The comma separate list of expected return value names.
+        """Comma separate list of expected return value names.
 
         :returns: comma separated list
         :rtype: str
@@ -432,7 +437,7 @@ class ReadDefinition:
 
     @property
     def return_type(self):
-        """The expected response object, a subclass of BaseResponse.
+        """Subclass of BaseResponse, the expected response object.
 
         :returns: expected response object
         :rtype: BaseResponse subclass
@@ -485,8 +490,10 @@ class SUDevice:
     """Encapsulates a Seneye USB Device and it's capabilities."""
 
     def __init__(self):
-        """Initialises and opens connection to Seneye USB Device, allowing for
-        commands and readings to be sent/read from the Seneye device.
+        """Initialise and open connection to Seneye USB Device.
+
+        Allowing for commands and readings to be sent/read from the Seneye
+        device.
 
         ..  note:: When finished SUDevice.close() should be called, to
             free the USB device, otherwise subsequent calls may fail.
@@ -513,7 +520,6 @@ class SUDevice:
             >>> d.action(Command.LEAVE_INTERACTIVE_MODE)
             >>> d.close()
         """
-
         dev = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
 
         if dev is None:
@@ -605,7 +611,7 @@ class SUDevice:
         return rdef.return_type(data, rdef)
 
     def close(self):
-        """Close connection to USB device and clean up instance"""
+        """Close connection to USB device and clean up instance."""
         # re-attach kernel driver
         usb.util.release_interface(self._instance, 0)
         self._instance.attach_kernel_driver(0)
