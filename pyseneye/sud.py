@@ -70,8 +70,8 @@ HELLOSUD_RETURN_VALUES = "validation_bytes,ack,device_type,version,unused"
 GENERIC_RETURN_VALUES = "validation_bytes,ack,unused"
 
 
-class Command(Enum):
-    """Commands that can be passed to SUDevice.action()."""
+class Action(Enum):
+    """Actions that can be passed to SUDevice.action()."""
 
     SENSOR_READING = 0
     ENTER_INTERACTIVE_MODE = 1
@@ -231,7 +231,7 @@ class SensorReadingResponse(BaseResponse):
         :returns: True if a light reading, False if a sensor reading.
         :rtype: bool
         """
-        rdef = COMMAND_DEFINITIONS[Command.LIGHT_READING].read_definitions[0]
+        rdef = ACTION_DEFINITIONS[Action.LIGHT_READING].read_definitions[0]
 
         return self._validation_bytes == rdef.validator
 
@@ -354,11 +354,11 @@ class SensorReadingResponse(BaseResponse):
         return self._pur
 
 
-class CommandDefinition:
-    """Definition for command and expected responses."""
+class ActionDefinition:
+    """Definition for action and expected responses."""
 
     def __init__(self, cmd_str, rdefs):
-        """Initialise command definition.
+        """Initialise action definition.
 
         :param cmd_str: the command string, to send to the device.
         :param rdefs: the definition of the expected responses
@@ -445,9 +445,9 @@ class ReadDefinition:
         return self._return_type
 
 
-# Concrete definitions of all messages commands/messages we can process.
-COMMAND_DEFINITIONS = {
-        Command.SENSOR_READING: CommandDefinition("READING", [
+# Concrete definitions of all actions we can take..
+ACTION_DEFINITIONS = {
+        Action.SENSOR_READING: ActionDefinition("READING", [
             ReadDefinition(
                 GENERIC_RESPONSE,
                 array('B', [0x88, 0x02]),
@@ -460,7 +460,7 @@ COMMAND_DEFINITIONS = {
                 SensorReadingResponse)
             ]),
 
-        Command.LIGHT_READING: CommandDefinition(None, [
+        Action.LIGHT_READING: ActionDefinition(None, [
             ReadDefinition(
                 SUDLIGHTMETER,
                 array('B', [0x00, 0x02]),
@@ -468,7 +468,7 @@ COMMAND_DEFINITIONS = {
                 SensorReadingResponse)
             ]),
 
-        Command.ENTER_INTERACTIVE_MODE: CommandDefinition("HELLOSUD", [
+        Action.ENTER_INTERACTIVE_MODE: ActionDefinition("HELLOSUD", [
             ReadDefinition(
                 HELLOSUD_RESPONSE,
                 array('B', [0x88, 0x01]),
@@ -476,7 +476,7 @@ COMMAND_DEFINITIONS = {
                 EnterInteractiveResponse)
             ]),
 
-        Command.LEAVE_INTERACTIVE_MODE: CommandDefinition("BYESUD", [
+        Action.LEAVE_INTERACTIVE_MODE: ActionDefinition("BYESUD", [
             ReadDefinition(
                 GENERIC_RESPONSE,
                 array('B', [0x77, 0x01]),  # Differs from documented response
@@ -492,14 +492,13 @@ class SUDevice:
     def __init__(self):
         """Initialise and open connection to Seneye USB Device.
 
-        Allowing for commands and readings to be sent/read from the Seneye
-        device.
+        Allowing for actions to be processed by the Seneye device.
 
         ..  note:: When finished SUDevice.close() should be called, to
             free the USB device, otherwise subsequent calls may fail.
 
         ..  note:: Device will need to be in interactive mode, before taking
-            any readings. Send Command.ENTER_INTERACTIVE_MODE to do this.
+            any readings. Send Action.ENTER_INTERACTIVE_MODE to do this.
             Devices can be left in interactive mode but readings will not be
             cached to be sent to the Seneye.me cloud service later.
 
@@ -508,16 +507,16 @@ class SUDevice:
         occur while trying to connect to USB device.
 
         :Example:
-            >>> from pyseneye.sud import SUDevice, Command
-            >>> d.action(Command.ENTER_INTERACTIVE_MODE)
-            >>> s = d.action(Command.SENSOR_READING)
+            >>> from pyseneye.sud import SUDevice, Action
+            >>> d.action(Action.ENTER_INTERACTIVE_MODE)
+            >>> s = d.action(Action.SENSOR_READING)
             >>> s.ph
             8.16
             >>> s.nh3
             0.007
             >>> s.temperature
             25.125
-            >>> d.action(Command.LEAVE_INTERACTIVE_MODE)
+            >>> d.action(Action.LEAVE_INTERACTIVE_MODE)
             >>> d.close()
         """
         dev = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
@@ -567,19 +566,19 @@ class SUDevice:
     def action(self, cmd, timeout=10000):
         """Perform action on device.
 
-        The available actions are specified by the Command Enum. These actions
+        The available actions are specified by the Action Enum. These actions
         can include a single write to the device and potentially multiple
         reads.
 
         :raises usb.core.USBError: If having issues connecting to the USB
         :raises TimeoutError: If read operation times out
 
-        :param cmd: Command to action
+        :param cmd: Action to action
         :param timeout:  timeout in milliseconds
-        :type cmd: Command
+        :type cmd: Action
         :type timeout: int
         """
-        cdef = COMMAND_DEFINITIONS[cmd]
+        cdef = ACTION_DEFINITIONS[cmd]
 
         if cdef.cmd_str is not None:
             self._write(cdef.cmd_str)

@@ -22,7 +22,7 @@ complete you can import the SUDevice class and connect to your device.
 
 .. code:: python
 
-    >>> from pyseneye.sud import SUDDevice, Command
+    >>> from pyseneye.sud import SUDDevice, Action
     >>> d = SUDevice()
 
 Once the class is initialised you can put the Seneye into interactive
@@ -30,15 +30,15 @@ mode and then retrieve sensor readings.
 
 .. code:: python
 
-    >>> d.action(Command.ENTER_INTERACTIVE_MODE)
-    >>> s = d.action(Command.SENSOR_READING)
+    >>> d.action(Action.ENTER_INTERACTIVE_MODE)
+    >>> s = d.action(Action.SENSOR_READING)
     >>> s.ph
     8.16
     >>> s.nh3
     0.007
     >>> s.temperature
     25.125
-    >>> d.action(Command.LEAVE_INTERACTIVE_MODE)
+    >>> d.action(Action.LEAVE_INTERACTIVE_MODE)
     >>> d.close()
 
 You need access to the USB device, so these calls may require elevated

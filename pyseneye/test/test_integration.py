@@ -2,7 +2,7 @@ import py.test
 import time
 from unittest.mock import Mock, patch
 
-from pyseneye.sud import SUDevice, Command, DeviceType, Response, EnterInteractiveResponse, SensorReadingResponse
+from pyseneye.sud import SUDevice, Action, DeviceType, Response, EnterInteractiveResponse, SensorReadingResponse
 
 # Requires a device plugged in, currently. 
 
@@ -11,7 +11,7 @@ def init_device():
     time.sleep(5)
     
     d = SUDevice()
-    r = d.action(Command.ENTER_INTERACTIVE_MODE)
+    r = d.action(Action.ENTER_INTERACTIVE_MODE)
     return d, r
     
 
@@ -33,7 +33,7 @@ def test_SUDevice_leave_interactive_mode():
     d, r = init_device()
     assert r.ack == True
     
-    r = d.action(Command.LEAVE_INTERACTIVE_MODE)
+    r = d.action(Action.LEAVE_INTERACTIVE_MODE)
     assert r.ack == True
     assert r.__class__ == Response
 
@@ -45,7 +45,7 @@ def test_SUDevice_get_light_reading():
     d, r = init_device()
     assert r.ack == True
 
-    r = d.action(Command.LIGHT_READING)
+    r = d.action(Action.LIGHT_READING)
     assert r.__class__ == SensorReadingResponse
     assert r.flags == None
     assert r.is_light_reading == True
@@ -67,7 +67,7 @@ def test_SUDevice_get_sensor_reading():
     d, r = init_device()
     assert r.ack == True
 
-    r = d.action(Command.SENSOR_READING)
+    r = d.action(Action.SENSOR_READING)
     assert r.__class__ == SensorReadingResponse
     assert r.flags != None
     assert r.is_light_reading == False
