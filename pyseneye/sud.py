@@ -40,7 +40,7 @@ ENDIAN = "<"
 B_LIGHTMETER = "11s3i2IB"
 
 # Flags, [unused], PH, NH3, Temp, [unused]
-SUDREADING_VALUES = "4Hi13s" + B_LIGHTMETER
+SUDREADING_VALUES = "2s3Hi13s" + B_LIGHTMETER
 
 # Header, cmd, Timestamp
 SUDREADING = ENDIAN + "2sI" + SUDREADING_VALUES + "c"
@@ -153,6 +153,14 @@ class EnterInteractiveResponse(Response):
     """Received when entering interactive mode. Contains device metadata."""
 
     def __init__(self, raw_data, read_def):
+        """Initialise enter interactive mode response, including device type
+        and version.
+
+        :param raw_data: raw binary data, containing response data
+        :param read_def: the definition of the expected data
+        :type raw_data: array('B', [64])
+        :type read_def: ReadDefinition
+        """
         self._device_type = None
         self._version = 0
 
@@ -160,7 +168,11 @@ class EnterInteractiveResponse(Response):
 
     @property
     def device_type(self):
+        """Gets the device type.
 
+        :returns: the device type
+        :rtype: DeviceType
+        """
         if self._device_type is None:
             return None
 
@@ -168,7 +180,11 @@ class EnterInteractiveResponse(Response):
 
     @property
     def version(self):
+        """The firmware version of the device.
 
+        :returns: the version
+        :rtype: str
+        """
         ver = self._version
 
         major = int(ver / 10000)
@@ -182,11 +198,17 @@ class SensorReadingResponse(BaseResponse):
     """Response which contains all sensor data."""
 
     def __init__(self, raw_data, read_def):
+        """Initialise sensor reading response, also populate sensor data.
 
+        :param raw_data: raw binary data, containing response data
+        :param read_def: the definition of the expected data
+        :type raw_data: array('B', [64])
+        :type read_def: ReadDefinition
+        """
         self._timestamp = 0
         self._ph = 0
         self._nh3 = 0
-        self._temperature = 0
+        self._temperature = None
         self._flags = None
         self._is_kelvin = False
         self._kelvin = 0
@@ -200,14 +222,22 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def is_light_reading(self):
+        """Is the sensor reading a light reading.
 
+        :returns: True if a light reading, False if a sensor reading.
+        :rtype: bool
+        """
         rdef = COMMAND_DEFINITIONS[Command.LIGHT_READING].read_definitions[0]
 
         return self._validation_bytes == rdef.validator
 
     @property
     def is_kelvin(self):
+        """Is light reading on kelvin line: https://tinyurl.com/yy2wtaz5
 
+        :returns: True if on kelvin line, False if not
+        :rtype: bool
+        """
         if self.is_light_reading:
             return self._is_kelvin
 
@@ -216,46 +246,106 @@ class SensorReadingResponse(BaseResponse):
 
     @property
     def timestamp(self):
+        """The time the reading was taken at.
+        (only available for sensor readings)
+
+        :returns: Unix epoch time
+        :rtype: float
+        """
         return self._timestamp
 
     @property
     def ph(self):  # pylint:disable=C0103
+        """The PH reading from the device.
+
+        :returns: the PH value
+        :rtype: float
+        """
         return self._ph/100
 
     @property
     def nh3(self):
+        """The NH3 reading from the device.
+
+        :returns: the NH3 value
+        :rtype: float
+        """
         return self._nh3/1000
 
     @property
     def temperature(self):
+        """The temperature reading from the device.
+
+        :returns: the temperature
+        :rtype: float
+        """
         return self._temperature/1000
 
     @property
     def flags(self):
+        """Raw flags information. Not usable yet.
+
+        :returns: the raw flags bytes
+        :rtype: array('B', [2])
+        """
         return self._flags
 
     @property
     def kelvin(self):
+        """The kelvin value of the light reading.
+
+        :returns: the kelvin value
+        :rtype: int
+        """
         return self._kelvin
 
     @property
     def kelvin_x(self):
+        """X co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5
+
+        Limited to colors that are near the kelvin line. Check with is_kelvin.
+
+        :returns: X co-ordinate
+        :rtype: int
+        """
         return self._kelvin_x
 
     @property
     def kelvin_y(self):
+        """Y co-ordinate on the CIE colourspace https://tinyurl.com/yy2wtaz5
+
+        Limited to colors that are near the kelvin line. Check with is_kelvin.
+
+        :returns: Y co-ordinate
+        :rtype: int
+        """
         return self._kelvin_y
 
     @property
     def par(self):
+        """PAR value for light reading.
+
+        :returns: PAR value
+        :rtype: int
+        """
         return self._par
 
     @property
     def lux(self):
+        """LUX value for light reading.
+
+        :returns: LUX value
+        :rtype: int
+        """
         return self._lux
 
     @property
     def pur(self):
+        """PUR value for light reading.
+
+        :returns: PUR value
+        :rtype: int
+        """
         return self._pur
 
 
@@ -263,18 +353,32 @@ class CommandDefinition:
     """Definition for command and expected responses."""
 
     def __init__(self, cmd_str, rdefs):
+        """Initialise command definition.
 
+        :param cmd_str: the command string, to send to the device.
+        :param rdefs: the definition of the expected responses
+        :type cmd_str: str
+        :type rdefs: ReadDefinition[]
+        """
         self._cmd_str = cmd_str
         self._rdefs = rdefs
 
     @property
     def cmd_str(self):
+        """The command string to write to the device.
 
+        :returns: command string
+        :rtype: str
+        """
         return self._cmd_str
 
     @property
     def read_definitions(self):
+        """The expected response read definition.
 
+        :returns: the read definitions
+        :rtype: ReadDefinition[]
+        """
         return self._rdefs
 
 
@@ -282,7 +386,18 @@ class ReadDefinition:
     """Definition of expected response, including validation and parsing."""
 
     def __init__(self, parse_str, validator, return_values, return_type):
+        """Initialise read definition of expected response.
 
+        :param parse_str: format string, with structure of raw response data
+        :param validator: bytes that can be used to validate response
+        :param return_values: the names and order of expected return values
+        (comma separated list)
+        :param return_type: BaseResponse subclass that represents the response
+        :type parse_str: str
+        :type validator: array('B', [2])
+        :type return_values: str
+        :type return_type: BaseResponse subclass
+        """
         self._validator = validator
         self._parse_str = parse_str
         self._return_values = return_values
@@ -290,22 +405,38 @@ class ReadDefinition:
 
     @property
     def validator(self):
+        """Validation bytes for expected read.
 
+        :returns: validation bytes
+        :rtype: array('B', [2])
+        """
         return self._validator
 
     @property
     def parse_str(self):
+        """Parse string, as struct format string.
 
+        :returns: format string
+        :rtype: str
+        """
         return self._parse_str
 
     @property
     def return_values(self):
+        """The comma separate list of expected return value names.
 
+        :returns: comma separated list
+        :rtype: str
+        """
         return self._return_values
 
     @property
     def return_type(self):
+        """The expected response object, a subclass of BaseResponse.
 
+        :returns: expected response object
+        :rtype: BaseResponse subclass
+        """
         return self._return_type
 
 
@@ -354,6 +485,34 @@ class SUDevice:
     """Encapsulates a Seneye USB Device and it's capabilities."""
 
     def __init__(self):
+        """Initialises and opens connection to Seneye USB Device, allowing for
+        commands and readings to be sent/read from the Seneye device.
+
+        ..  note:: When finished SUDevice.close() should be called, to
+            free the USB device, otherwise subsequent calls may fail.
+
+        ..  note:: Device will need to be in interactive mode, before taking
+            any readings. Send Command.ENTER_INTERACTIVE_MODE to do this.
+            Devices can be left in interactive mode but readings will not be
+            cached to be sent to the Seneye.me cloud service later.
+
+        :raises ValueError: If USB device not found.
+        :raises usb.core.USBError: If permissions or communications error
+        occur while trying to connect to USB device.
+
+        :Example:
+            >>> from pyseneye.sud import SUDevice, Command
+            >>> d.action(Command.ENTER_INTERACTIVE_MODE)
+            >>> s = d.action(Command.SENSOR_READING)
+            >>> s.ph
+            8.16
+            >>> s.nh3
+            0.007
+            >>> s.temperature
+            25.125
+            >>> d.action(Command.LEAVE_INTERACTIVE_MODE)
+            >>> d.close()
+        """
 
         dev = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
 
@@ -400,7 +559,20 @@ class SUDevice:
         return self._instance.read(self._ep_in, packet_size)
 
     def action(self, cmd, timeout=10000):
+        """Perform action on device.
 
+        The available actions are specified by the Command Enum. These actions
+        can include a single write to the device and potentially multiple
+        reads.
+
+        :raises usb.core.USBError: If having issues connecting to the USB
+        :raises TimeoutError: If read operation times out
+
+        :param cmd: Command to action
+        :param timeout:  timeout in milliseconds
+        :type cmd: Command
+        :type timeout: int
+        """
         cdef = COMMAND_DEFINITIONS[cmd]
 
         if cdef.cmd_str is not None:
@@ -433,7 +605,7 @@ class SUDevice:
         return rdef.return_type(data, rdef)
 
     def close(self):
-
+        """Close connection to USB device and clean up instance"""
         # re-attach kernel driver
         usb.util.release_interface(self._instance, 0)
         self._instance.attach_kernel_driver(0)
