@@ -212,7 +212,7 @@ class SensorReadingResponse(BaseResponse):
         self._timestamp = 0
         self._ph = 0
         self._nh3 = 0
-        self._temperature = None
+        self._temperature = 0
         self._flags = None
         self._is_kelvin = False
         self._kelvin = 0
