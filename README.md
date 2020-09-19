@@ -16,7 +16,7 @@ Quickstart
 Install pyseneye using `pip`: `$ pip install pyseneye`. Once that is complete you can import the SUDevice class and connect to your device.
 
 ```python
->>> from pyseneye.sud import SUDDevice, Action
+>>> from pyseneye.sud import SUDevice, Action
 >>> d = SUDevice()
 ```
 
