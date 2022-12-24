@@ -7,3 +7,4 @@ pylint==2.2.2
 git-pylint-commit-hook==2.5.1
 flake8==3.7.6
 twine==1.13.0
+setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
