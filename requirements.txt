@@ -1,7 +1,7 @@
 bitstruct==6.0.0
 pytest==4.3.0
 pyusb==1.0.2
-sphinx==1.8.4
+sphinx==3.3.0
 pytest-cov==2.6.1
 pylint==2.2.2
 git-pylint-commit-hook==2.5.1
