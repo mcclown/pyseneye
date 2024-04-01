@@ -3,7 +3,7 @@ pytest==4.3.0
 pyusb==1.0.2
 sphinx==1.8.4
 pytest-cov==2.6.1
-pylint==2.2.2
+pylint==2.6.1
 git-pylint-commit-hook==2.5.1
 flake8==3.7.6
 twine==1.13.0
